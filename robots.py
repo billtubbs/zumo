@@ -7,15 +7,15 @@ import struct
 # These are specific to the computer you are running
 # this code on
 
-# To identify new devices connected to the Raspberry Pi's
+# To identify new devices connected to the computer's
 # USB ports type lsusb into the shell
 
 # Example:
 # Bus 001 Device 006: ID 16c0:0483 VOTI Teensyduino Serial
 # Bus 001 Device 005: ID 16c0:0483 VOTI Teensyduino Serial
 
-# To find the port name of each Teensy use the following with
-# and without the Teensies plugged in:
+# To find the port name of each device use the following with
+# and without the device plugged in:
 # ls /dev/tty*
 
 address = '/dev/tty.usbmodem1421'
@@ -40,14 +40,14 @@ class Zumo(object):
         try:
             response = self.get_id()
         except:
-            print "Connection to", self.address, "failed."
+            print(f"Connection to {self.address} failed.")
             self.serial.close()
             return result
 
         if response.startswith("Zumo"):
             self.name = response
-            print "Connection to", self.address, "(" + \
-                  response + ") successful."
+            print(f"Connection to {self.address} ({response}) "
+                  f"successful.")
             result = True
 
         return result
@@ -114,6 +114,7 @@ class Zumo(object):
 
     def __repr__(self):
         return "Zumo(address='%s', baud=%d)" % (self.address, self.baud)
+
 
 def test():
     """Simple demonstration code to show how to control
@@ -208,7 +209,6 @@ def test():
                     done = True
 
         clock.tick()
-
 
 
 if __name__ == "__main__":
