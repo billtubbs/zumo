@@ -17,99 +17,124 @@ import struct
 # To find the port name of each device use the following with
 # and without the device plugged in:
 # ls /dev/tty*
+# Or use the following to list availble ports
+# python -m serial.tools.list_ports
 
-address = '/dev/tty.usbmodem1421'
+# Troube-shooting checklists:
+#
+# Problem connecting to Zumo
+# - Check port address (see notes above and variable below)
+#
+# Problem: Zumo not responding
+# - Check correct Arduino sketch loaded on Zumo 'RemoteControl.ino'
+# - To send keyboard commands, the Pygame app window must be selected
+#   (not the console output window or any other window)
+#
+# Problem: Zumo motors not moving
+# - Check battery power switch on Zumo is set to ON
+# - Changed speed setting to 100 or more
+#
+# Problem: loading Arduino sketch onto Zumo
+# - Check correct port and board are selected in Arduino app (
+#   see Pololu A-star boards library)
+
+
+address = '/dev/cu.usbmodem14201'
 
 class Zumo(object):
 
-    def __init__(self, address=address, baud=9600):
+    def __init__(self, address=address, baud=9600, timeout=1):
 
         self.address = address
         self.baud = baud
+        self.timeout = timeout
         self.serial = None
         self.name = None
 
     def connect(self):
 
         # Establish connection
-        self.serial = serial.Serial(self.address, self.baud)
-        #self.serial.open()
+        try:
+            self.serial = serial.Serial(self.address, self.baud,
+                                        timeout=self.timeout)
+        except serial.SerialException:
+            print(f"Connection to {self.address} failed.")
+            return False
 
-        # Check connection by requesting identification
-        result = False
+        # Check connection by requesting identification code
         try:
             response = self.get_id()
-        except:
-            print(f"Connection to {self.address} failed.")
+        except serial.SerialException:
+            print(f"Communication to {self.address} failed.")
             self.serial.close()
-            return result
+            return False
 
-        if response.startswith("Zumo"):
+        if response.startswith(b"Zumo"):
             self.name = response
             print(f"Connection to {self.address} ({response}) "
                   f"successful.")
-            result = True
+            return True
 
-        return result
+        print(f"Unexpected device ID: '{response.decode('utf8'):s}'")
+        return False
 
     def get_id(self):
-        self.serial.write('ID')
+        self.serial.write('ID'.encode('utf-8'))
         return self.serial.readline().rstrip()
 
     def forward(self, speed=2):
-        self.serial.write('F{:1s}'.format(str(speed)))
+        self.serial.write(f'F{speed:1d}'.encode('utf-8'))
 
     def backward(self, speed=2):
-        self.serial.write('B{:1s}'.format(str(speed)))
+        self.serial.write(f'B{speed:1d}'.encode('utf-8'))
 
     def right(self, speed=2):
-        self.serial.write('R{:1s}'.format(str(speed)))
+        self.serial.write(f'R{speed:1d}'.encode('utf-8'))
 
     def left(self, speed=2):
-        self.serial.write('L{:1s}'.format(str(speed)))
+        self.serial.write(f'L{speed:1d}'.encode('utf-8'))
 
     def set_speeds(self, left_speed, right_speed):
-        self.serial.write('SS{:4s}'.format(
-            struct.pack(">2h", left_speed, right_speed))
-        )
+        s = struct.pack(">2h", left_speed, right_speed)
+        self.serial.write(b'SS' + s)
 
     def stop(self):
-        self.serial.write('F0')
+        self.serial.write('F0'.encode('utf-8'))
 
     def buzzer(self, n=1):
-        self.serial.write('N%d' % n)
+        self.serial.write(f'N{n:d}'.encode('utf-8'))
 
     def led_yellow(self, n):
-        self.serial.write('Y%d' % n)
+        self.serial.write(f'Y{n:d}'.encode('utf-8'))
 
     def led_green(self, n):
-        self.serial.write('Z%d' % n)
+        self.serial.write(f'Z{n:d}'.encode('utf-8'))
 
     def get_encoder_value(self, side):
-        self.serial.write('E{:1s}'.format(side))
+        self.serial.write(f'E{side:1s}'.encode('utf-8'))
         return struct.unpack(">h", self.serial.read(2))[0]
 
     def get_proximity_value(self, direction):
-        self.serial.write('P{:1s}'.format(direction))
+        self.serial.write(f'P{direction:1s}'.encode('utf-8'))
         if direction == 'F':
             return (ord(self.serial.read()), ord(self.serial.read()))
         else:
             return ord(self.serial.read())
 
     def get_compass_a(self):
-        self.serial.write('CA')
+        self.serial.write('CA'.encode('utf-8'))
         return struct.unpack(">3h", self.serial.read(6))
 
     def get_compass_m(self):
-        self.serial.write('CM')
+        self.serial.write('CM'.encode('utf-8'))
         return struct.unpack(">3h", self.serial.read(6))
 
     def get_gyro_readings(self):
-        self.serial.write('GY')
+        self.serial.write('GY'.encode('utf-8'))
         return struct.unpack(">3h", self.serial.read(6))
 
     def get_battery_voltage(self):
-        self.serial.write('BA')
+        self.serial.write('BA'.encode('utf-8'))
         return struct.unpack(">h", self.serial.read(2))[0]
 
     def __repr__(self):
@@ -131,7 +156,8 @@ def test():
     print("  ESCAPE  - quit.")
 
     zumo = Zumo()
-    zumo.connect()
+    if not zumo.connect():
+        raise ValueError("Connection problem")
     pygame.init()
 
     speed = 200
@@ -169,6 +195,7 @@ def test():
             right_speed -= speed
 
         if (left_speed, right_speed) != previous_speeds:
+            print("Motors activated")
             zumo.set_speeds(left_speed, right_speed)
 
         # Handle events
@@ -179,13 +206,17 @@ def test():
             if event.type == pygame.KEYDOWN:
                 if event.key in number_keys[0:5]:
                     speed = number_keys.index(event.key) * 100
+                    print(f"Speed changed to {speed:d}")
                 elif event.key == pygame.K_y:
                     led_yellow = led_yellow ^ 1
+                    print("Yellow LED changed")
                     zumo.led_yellow(led_yellow)
                 elif event.key == pygame.K_z:
                     led_green = led_green ^ 1
+                    print("Green LED changed")
                     zumo.led_green(led_green)
                 elif event.key == pygame.K_SPACE:
+                    print("Buzzer")
                     zumo.buzzer()
                 elif event.key == pygame.K_e:
                     encoders = (zumo.get_encoder_value('L'),
